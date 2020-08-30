@@ -1,0 +1,1 @@
+/usr/bin/c++ -fPIC -flto -fno-fat-lto-objects  -shared  -o kf_cpp.cpython-38-x86_64-linux-gnu.so CMakeFiles/kf_cpp.dir/wrappers.cpp.o 
