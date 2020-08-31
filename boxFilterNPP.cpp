@@ -17,7 +17,10 @@
     4. Play with ROI
     5. TIME THIS CODE! (DONE)
     6. ISSUE: Kernel is Npp32f not Npp32f (we need it to be a float!) (DONE)
-    7. ISSUE: There is a problem with your bfKernel, i suppose it might need some normalization?? It just makes everything black...
+    7. ISSUE: There is a problem with your bfKernel, i suppose it might need some normalization?? It just makes everything black... (DONE, normalized!)
+
+    pybind11 Issues (8/30/2020):
+    1. Trying to use 32 bit function, but loadImage only works with 8u chars data type... And I keep getting segmentation faults....
 */
 
 #if defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
@@ -48,6 +51,13 @@
 #include <stdlib.h>
 #include <typeinfo>
 #include <stdlib.h>
+
+//Binding includes- 8/30/2020------
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+#include <ostream>
+#include <iostream>
+#include <list>
 
 long long start_timer();
 long long stop_timer(long long start_time, const char* name);
@@ -130,79 +140,17 @@ void fillKernelArray(std::string kernelName, Npp32f* kernelArr, int kernelSize) 
     file.close();
 }
 
-int main(int argc, char *argv[])
-{
-    printf("%s Starting...\n\n", argv[0]);
+//gonna make the only params an array of float pixel values....
+//Also, don't forget to do padding afterwards. Temporarily use python padding if having trouble with NPP CUDA
+//also the edge pixels will be set to quietNan or something like that....(see convolveImage.h)
 
-    try
-    {
-        std::string sFilename;
-        char* filePath;
+int imageConvolution(list<int> image) {
 
-        cudaDeviceInit(argc, (const char**)argv);
-
-        if (printfNPPinfo(argc, argv) == false)
-        {
-            exit(EXIT_SUCCESS);
+        std::cout<<"Printing array"<<std::endl;
+        for(int n : image){
+            std::cout<<n<<std::endl;
         }
 
-        if (checkCmdLineFlag(argc, (const char**)argv, "input"))
-        {
-            getCmdLineArgumentString(argc, (const char**)argv, "input", &filePath);
-        }
-        else
-        {
-            filePath = sdkFindFilePath("Lena.pgm", argv[0]);
-        }
-
-        if (filePath)
-        {
-            sFilename = filePath;
-        }
-        else
-        {
-            sFilename = "Lena.pgm";
-        }
-
-        // if we specify the filename at the command line, then we only test sFilename[0].
-        int file_errors = 0;
-        std::ifstream infile(sFilename.data(), std::ifstream::in);
-
-        if (infile.good())
-        {
-            std::cout << "boxFilterNPP opened: <" << sFilename.data() << "> successfully!" << std::endl;
-            file_errors = 0;
-            infile.close();
-        }
-        else
-        {
-            std::cout << "boxFilterNPP unable to open: <" << sFilename.data() << ">" << std::endl;
-            file_errors++;
-            infile.close();
-        }
-
-        if (file_errors > 0)
-        {
-            exit(EXIT_FAILURE);
-        }
-
-        std::string sResultFilename = sFilename;
-
-        std::string::size_type dot = sResultFilename.rfind('.');
-
-        if (dot != std::string::npos)
-        {
-            sResultFilename = sResultFilename.substr(0, dot);
-        }
-
-        sResultFilename += "_boxFilter.pgm";
-
-        if (checkCmdLineFlag(argc, (const char**)argv, "output"))
-        {
-            char* outputFilePath;
-            getCmdLineArgumentString(argc, (const char**)argv, "output", &outputFilePath);
-            sResultFilename = outputFilePath;
-        }
         long long start_time = start_timer();
 
         //Code from stack overflow - begin
@@ -211,16 +159,22 @@ int main(int argc, char *argv[])
         std::string saveFilename = dirFilename + "_convolved";
         //npp::ImageCPU_8u_C1 oHostSrc;
         npp::ImageCPU_32f_C1 oHostSrc;
-       
+        std::cout << "oHostSrc" << std::endl;
         //npp::loadImage(dirFilename + fileExtension, oHostSrc);//(sFilename, oHostSrc);
         //npp::ImageNPP_8u_C1 oDeviceSrc(oHostSrc); // malloc and memcpy to GPU 
-        npp::ImageNPP_32f_C1 oDeviceSrc(512,512);//(oHostSrc.width(), oHostSrc.height());
+
+        npp::ImageNPP_32f_C1 oDeviceSrc(512, 512);//Works with hardcoded ints though.... (oHostSrc.width(), oHostSrc.height());//program is breaking here.....
+
+       /* for (int i = 0;i < 512 * 512;i++) {//sorry ,it's easier to hardcode, this is just a hack...
+            oDeviceSrc.data()[i] = rand() % 100 + 1;
+            //::cout << oHostDst.data()[i] << std::endl;
+        }*/
+
         NppiSize kernelSize = { 17,17 };//{ 3, 3 }; // dimensions of convolution kernel (filter)
-        NppiSize oSizeROI = {510,510 };//oHostSrc.width() - kernelSize.width + 1, oHostSrc.height() - kernelSize.height + 1 };//what is with the kernel offset of ROI? How does this deal with the edges? Avoiding them?
+        NppiSize oSizeROI = { 510,510 };//oHostSrc.width() - kernelSize.width + 1, oHostSrc.height() - kernelSize.height + 1 };//what is with the kernel offset of ROI? How does this deal with the edges? Avoiding them?
         //npp::ImageNPP_8u_C1 oDeviceDst(oSizeROI.width, oSizeROI.height); // allocate device image of appropriately reduced size
         //npp::ImageCPU_8u_C1 oHostDst(oDeviceDst.size());
-
-        npp::ImageNPP_32f_C1 oDeviceDst(510,510);//oSizeROI.width, oSizeROI.height); // allocate device image of appropriately reduced size
+        npp::ImageNPP_32f_C1 oDeviceDst(510, 510);//oSizeROI.width, oSizeROI.height); // allocate device image of appropriately reduced size
         npp::ImageCPU_32f_C1 oHostDst(oDeviceDst.size());
         NppiPoint oAnchor = { kernelSize.width / 2, kernelSize.height / 2 }; //**SEE DOCUMENTATION ON WHAT oAnchor is??? (Does this perfectly center it? Im just copying example code)
         NppStatus eStatusNPP;
@@ -235,7 +189,7 @@ int main(int argc, char *argv[])
         for (int i = 0;i < 289;i++) {
             hostKernel[i] = 1/9; //a blur kernel...?
         }*/
-        
+
         /*for (int i = 0; i < hostKSize;i++) {
             std::cout << hostKernel[i] << std::endl;
         }*/
@@ -261,7 +215,7 @@ int main(int argc, char *argv[])
         int dstPitch = oDeviceDst.pitch();
         //std::cout <<"Pitch:" <<oDeviceSrc.pitch() << std::endl;
         //How pitch is calculated: how many bytes in a row? Calcualte by getting bytes in a pixel * image width
-        
+
         //std::cout << "Source image: " << oDeviceSrc.data() << std::endl;
         std::cout << "Source image Line Step (bytes) " << devPitch << std::endl;
         //std::cout << "Destination Image: " << oDeviceDst.data() << std::endl;
@@ -271,31 +225,45 @@ int main(int argc, char *argv[])
         //std::cout << "Kernel Size: " << kernelSize << std::endl;
         //std::cout << "X and Y offsets of kernel origin frame: " << oAnchor << std::endl;
 
+        for (int i = 0;i < 510 * 510;i++) {//sorry ,it's easier to hardcode, this is just a hack...
+            std::cout << oHostDst.data()[i] << std::endl;
+        }
+
         eStatusNPP = nppiFilter_32f_C1R(oDeviceSrc.data(), devPitch, oDeviceDst.data(),
             dstPitch, oSizeROI, deviceKernel, kernelSize, oAnchor);
         /*eStatusNPP = nppiFilter_8u_C1R(oDeviceSrc.data(), oDeviceSrc.pitch(),
             oDeviceDst.data(), oDeviceDst.pitch(),
             oSizeROI, deviceKernel, kernelSize, oAnchor, divisor);*/
 
-        std::cout << "NppiFilter error status " << eStatusNPP << std::endl; // prints 0 (no errors)
+ 
+
+        std::cout << "NppiFilter error status " << eStatusNPP << std::endl; // prints 0 (no errors) //-6 is NPP_SIZE_ERROR (ROI Height or ROI width are negative)
         oDeviceDst.copyTo(oHostDst.data(), oHostDst.pitch()); // memcpy to host
+
+
         //saveImage(saveFilename+fileExtension, oHostDst);
+
+        /*
+        for (int i = 0;i < 510 * 510;i++) {//sorry ,it's easier to hardcode, this is just a hack...
+            std::cout << oHostDst.data()[i] << std::endl;
+        }*/
 
         /*Npp8u* hostDstData = oHostDst.data();
         std::cout << "Host destination data type:  " << typeid(hostDstData).name() << std::endl; //unsigned char array of course...
         for (int i = 0;i < hostDstData.size();i++) {
             std::cout << hostDstData[i] << std::endl;
         }*/
-        for (int i = 0;i < 512 * 512;i++) { 
-           std::cout << oHostDst.data()[i] << std::endl;
-        }        //end code from SO
+
+
+        //end code from SO
         nppiFree(oDeviceSrc.data());
         nppiFree(oDeviceDst.data());
-    
+
         long long totalTime = stop_timer(start_time, "Total NPP convolution time:");
         exit(EXIT_SUCCESS);
-    }
-    catch (npp::Exception &rException)
+
+/*    }
+    catch (npp::Exception & rException)
     {
         std::cerr << "Program error! The following exception occurred: \n";
         std::cerr << rException << std::endl;
@@ -310,10 +278,15 @@ int main(int argc, char *argv[])
 
         exit(EXIT_FAILURE);
         return -1;
-    }
+    }*/
 
     return 0;
 }
+
+/*int main(int argc, char *argv[])
+{
+    imageConvolution();
+}*/
 
 // Returns the current time in microseconds
 long long start_timer() {
@@ -335,4 +308,12 @@ long long stop_timer(long long start_time, const char* name) {
     float elapsed = usToSec(end_time - start_time);
     printf("%s: %.5f sec\n", name, elapsed);
     return end_time - start_time;
+}
+
+//python c++ binder!
+PYBIND11_MODULE(NPPconv, m) {
+    m.doc() = "C++ NPP Convolution Bindings"; // optional module docstring
+
+    m.def("imageConvolution", &imageConvolution, "A function which performs an image convolution given a list of 32-bit pixel values")
+
 }
